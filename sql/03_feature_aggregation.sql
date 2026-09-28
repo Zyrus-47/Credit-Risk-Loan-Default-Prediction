@@ -1,7 +1,5 @@
--- 03_feature_aggregation.sql
--- Aggregation views for credit risk reporting, portfolio diagnostics, and grade benchmarks
+-- Portfolio aggregation views and risk benchmarks
 
--- 1. Grade-level risk summary and benchmark default rates
 CREATE TABLE IF NOT EXISTS grade_risk_summary AS
 SELECT
     grade,
@@ -17,7 +15,6 @@ FROM cleaned_loans
 GROUP BY grade
 ORDER BY grade;
 
--- 2. Purpose and term delinquency cohort analysis
 CREATE TABLE IF NOT EXISTS purpose_risk_summary AS
 SELECT
     purpose,
@@ -30,7 +27,6 @@ FROM cleaned_loans
 GROUP BY purpose, term
 ORDER BY loan_count DESC;
 
--- 3. Delinquency and inquiry bucket analysis
 CREATE TABLE IF NOT EXISTS delinquency_cohort_summary AS
 SELECT
     CASE 

@@ -1,8 +1,4 @@
-"""
-Probability of Default (PD) Modeling Suite (Basel II / IFRS 9 Framework).
-Trains and evaluates Baseline (Logistic Regression), Challenger 1 (Random Forest),
-and Challenger 2 (XGBoost with scale_pos_weight), followed by Probability Calibration.
-"""
+"""Probability of Default (PD) model training and probability calibration."""
 
 from __future__ import annotations
 
@@ -90,11 +86,9 @@ class PDModelSuite:
     def train_models(
         self, X_train: pd.DataFrame, y_train: pd.Series
     ) -> Dict[str, Any]:
-        """Trains Baseline Logistic Regression, Random Forest, and tuned XGBoost."""
-        logger.info("Initializing and training PD models...")
+        """Fits baseline logistic regression, random forest, and calibrated XGBoost."""
+        logger.info("Training models...")
 
-        # 1. Baseline Scorecard: Logistic Regression with L2 regularization
-        logger.info("Training Baseline Scorecard (Logistic Regression L2)...")
         lr_pipeline = Pipeline([
             ("scaler", StandardScaler()),
             ("classifier", LogisticRegression(penalty="l2", C=1.0, max_iter=1000, random_state=self.random_state)),
@@ -102,8 +96,6 @@ class PDModelSuite:
         lr_pipeline.fit(X_train, y_train)
         self.models["Logistic_Regression_L2"] = lr_pipeline
 
-        # 2. Challenger 1: Random Forest Classifier
-        logger.info("Training Challenger 1 (Random Forest Classifier)...")
         rf = RandomForestClassifier(
             n_estimators=150,
             max_depth=8,
@@ -115,10 +107,8 @@ class PDModelSuite:
         rf.fit(X_train, y_train)
         self.models["Random_Forest"] = rf
 
-        # 3. Challenger 2 (Champion Candidate): XGBoost with class imbalance weight
-        logger.info("Training Challenger 2 (XGBoost Classifier with scale_pos_weight)...")
         scale_pos_weight = float((y_train == 0).sum() / (y_train == 1).sum())
-        logger.info(f"Computed scale_pos_weight: {scale_pos_weight:.2f}")
+        logger.info(f"Class imbalance weight: {scale_pos_weight:.2f}")
 
         xgb = XGBClassifier(
             n_estimators=200,
@@ -134,8 +124,6 @@ class PDModelSuite:
         xgb.fit(X_train, y_train)
         self.models["XGBoost"] = xgb
 
-        # 4. Probability Calibration on Champion (XGBoost)
-        logger.info("Calibrating XGBoost default probabilities (CalibratedClassifierCV - Sigmoid)...")
         calibrated_xgb = CalibratedClassifierCV(
             estimator=xgb,
             method="sigmoid",
@@ -265,8 +253,5 @@ def run_pd_training_pipeline() -> Tuple[PDModelSuite, pd.DataFrame]:
 
 if __name__ == "__main__":
     suite, comparison_df = run_pd_training_pipeline()
-    print("\n" + "="*80)
-    print(" " * 25 + "PD MODEL BENCHMARK RESULTS")
-    print("="*80)
+    print("\nModel Evaluation Results:")
     print(comparison_df.to_string(index=False))
-    print("="*80)

@@ -1,9 +1,4 @@
-"""
-Basel II / IFRS 9 Expected Loss Engine.
-Calculates Probability of Default (PD), Exposure at Default (EAD),
-Loss Given Default (LGD), and Expected Loss (EL = PD * LGD * EAD).
-Includes institutional risk tier segmentation and regulatory capital provisions.
-"""
+"""Expected loss (EL = PD * LGD * EAD) calculation and capital provisioning."""
 
 from __future__ import annotations
 
@@ -33,10 +28,7 @@ REPORTS_DIR = ARTIFACTS_DIR / "reports"
 
 
 class BaselExpectedLossEngine:
-    """
-    Implements Basel II / IFRS 9 Expected Capital Provisions:
-    EL = PD * LGD * EAD
-    """
+    """Computes portfolio credit risk metrics and expected loss provisions."""
 
     DEFAULT_CCF = 1.0  # Credit Conversion Factor for fixed term installment loans
 
@@ -267,19 +259,17 @@ class BaselExpectedLossEngine:
         self, scored_df: pd.DataFrame, output_path: Optional[Path] = None
     ) -> Path:
         """Visualizes expected loss dollar distributions across risk ratings."""
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+        fig, axes = plt.subplots(1, 2, figsize=(10, 3.8))
 
-        # 1. Total Provisions by Risk Rating
         tier_agg = scored_df.groupby("risk_tier")["expected_loss"].sum().reset_index()
         colors = ["#2ecc71", "#f39c12", "#e74c3c"]
         axes[0].bar(tier_agg["risk_tier"], tier_agg["expected_loss"], color=colors[:len(tier_agg)], edgecolor="black")
-        axes[0].set_title("Total Expected Loss Capital Provisions by Risk Tier", fontsize=12, fontweight="bold")
-        axes[0].set_ylabel("Expected Capital Provision ($)")
+        axes[0].set_title("Expected Loss Provisions by Risk Tier", fontsize=11, fontweight="bold")
+        axes[0].set_ylabel("Capital Provision ($)")
         axes[0].yaxis.set_major_formatter("${x:,.0f}")
         for idx, row in tier_agg.iterrows():
-            axes[0].text(idx, row["expected_loss"] + (row["expected_loss"] * 0.02), f"${row['expected_loss']:,.0f}", ha="center", fontweight="bold")
+            axes[0].text(idx, row["expected_loss"] + (row["expected_loss"] * 0.02), f"${row['expected_loss']:,.0f}", ha="center", fontsize=9, fontweight="bold")
 
-        # 2. EL vs Loan Amount Scatter colored by PD
         sc = axes[1].scatter(
             scored_df["loan_amnt"],
             scored_df["expected_loss"],
@@ -287,10 +277,11 @@ class BaselExpectedLossEngine:
             cmap="coolwarm",
             alpha=0.6,
             edgecolors="none",
+            s=15,
         )
         cbar = plt.colorbar(sc, ax=axes[1])
-        cbar.set_label("Probability of Default (PD)")
-        axes[1].set_title("Expected Loss ($) vs. Loan Amount", fontsize=12, fontweight="bold")
+        cbar.set_label("Probability of Default (PD)", fontsize=9)
+        axes[1].set_title("Expected Loss ($) vs. Loan Amount", fontsize=11, fontweight="bold")
         axes[1].set_xlabel("Loan Amount ($)")
         axes[1].set_ylabel("Expected Loss ($)")
         axes[1].xaxis.set_major_formatter("${x:,.0f}")
@@ -298,7 +289,7 @@ class BaselExpectedLossEngine:
 
         plt.tight_layout()
         save_file = output_path or (REPORTS_DIR / "expected_loss_distribution.png")
-        plt.savefig(save_file, dpi=300)
+        plt.savefig(save_file, dpi=200)
         plt.close()
         logger.info(f"Loss distribution plot saved to: {save_file}")
         return save_file
@@ -356,9 +347,7 @@ def run_basel_expected_loss_pipeline() -> Tuple[pd.DataFrame, Dict[str, Any]]:
 
 if __name__ == "__main__":
     scored_portfolio, portfolio_summary = run_basel_expected_loss_pipeline()
-    print("\n" + "="*85)
-    print(" " * 20 + "BASEL II / IFRS 9 EXPECTED LOSS PORTFOLIO SUMMARY")
-    print("="*85)
+    print("\nExpected Loss Portfolio Summary:")
     print(f"Total Portfolio Loans:            {portfolio_summary['total_portfolio_loans']:,}")
     print(f"Total Funded Volume:              ${portfolio_summary['total_funded_volume_usd']:,.2f}")
     print(f"Total Exposure at Default (EAD):   ${portfolio_summary['total_exposure_at_default_usd']:,.2f}")
@@ -367,7 +356,6 @@ if __name__ == "__main__":
     print(f"Portfolio Weighted Avg PD:        {portfolio_summary['portfolio_weighted_pd_pct']:.2f}%")
     print(f"Portfolio Weighted Avg LGD:       {portfolio_summary['portfolio_weighted_lgd_pct']:.2f}%")
     print(f"Portfolio Expected Loss Rate:     {portfolio_summary['portfolio_el_rate_pct']:.2f}%\n")
-    print("Capital Provisions by Institutional Risk Tier:")
+    print("Capital Provisions by Risk Tier:")
     tier_df = pd.DataFrame(portfolio_summary["tier_breakdown"])
     print(tier_df.to_string(index=False))
-    print("="*85)

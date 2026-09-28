@@ -1,8 +1,4 @@
-"""
-Feature Engineering and Preprocessing Pipeline for Credit Risk & Expected Loss Engine.
-Implements financial domain ratios, median imputation grouped by grade/sub-grade,
-99th percentile winsorization, ordinal/nominal encoding, and Weight of Evidence (WoE).
-"""
+"""Feature engineering and transformations for credit risk modeling."""
 
 from __future__ import annotations
 
@@ -144,6 +140,35 @@ class CreditFeatureEngineer(BaseEstimator, TransformerMixin):
         """Applies missing value imputation, outlier capping, domain ratio engineering, and encoding."""
         df = X.copy()
 
+        # Sanitize strings to numeric if raw uncleaned strings passed (e.g. from UI)
+        if "revol_util" in df.columns and df["revol_util"].dtype == object:
+            df["revol_util"] = pd.to_numeric(
+                df["revol_util"].astype(str).str.replace("%", "", regex=False).str.strip(),
+                errors="coerce",
+            )
+        if "int_rate" in df.columns and df["int_rate"].dtype == object:
+            df["int_rate"] = pd.to_numeric(
+                df["int_rate"].astype(str).str.replace("%", "", regex=False).str.strip(),
+                errors="coerce",
+            )
+        if "term" in df.columns and df["term"].dtype == object:
+            df["term"] = pd.to_numeric(
+                df["term"].astype(str).str.replace(" months", "", regex=False).str.strip(),
+                errors="coerce",
+            )
+        if "emp_length" in df.columns and df["emp_length"].dtype == object:
+            def clean_emp(val):
+                if pd.isna(val) or str(val).lower() in ("n/a", "none", ""):
+                    return 0
+                val_str = str(val)
+                if "< 1" in val_str:
+                    return 0
+                if "10+" in val_str:
+                    return 10
+                digits = "".join(filter(str.isdigit, val_str))
+                return int(digits) if digits else 0
+            df["emp_length"] = df["emp_length"].apply(clean_emp)
+
         # 1. Missing Value Imputation grouped by grade/sub_grade with fallback to global median
         impute_cols = [
             "annual_inc", "dti", "revol_util", "revol_bal",
@@ -223,16 +248,10 @@ def run_feature_engineering_pipeline(
     input_path: Optional[Path] = None,
     save_artifacts: bool = True,
 ) -> Tuple[pd.DataFrame, pd.Series, CreditFeatureEngineer]:
-    """
-    Executes end-to-end Step 2 Feature Engineering:
-    - Reads cleaned dataset
-    - Fits CreditFeatureEngineer
-    - Exports transformed dataset and fitted preprocessor
-    """
+    """Runs data transformations, fits feature preprocessor, and exports processed data."""
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     source_file = input_path or (PROCESSED_DATA_DIR / "cleaned_loans.parquet")
     if not source_file.exists():
-        # Fallback to CSV if parquet does not exist
         source_file = PROCESSED_DATA_DIR / "cleaned_loans.csv"
 
     logger.info(f"Loading cleaned data from: {source_file}")
@@ -241,24 +260,17 @@ def run_feature_engineering_pipeline(
     y = df["default_flag"].copy()
     X = df.drop(columns=["default_flag"])
 
-    # Fit and transform
     engineer = CreditFeatureEngineer(cap_percentile=0.99)
     engineer.fit(X, y)
     X_transformed = engineer.transform(X)
 
     logger.info(f"Feature transformation complete. Feature matrix shape: {X_transformed.shape}")
-    logger.info(f"Domain features created: installment_to_income, credit_history_length, unutilized_credit_limit, revolving_debt_to_income")
-    logger.info(f"Information Value (IV) Highlights:")
-    for feat, iv in sorted(engineer.iv_summary_.items(), key=lambda x: x[1], reverse=True):
-        tier = "Suspicious/Extreme" if iv > 0.5 else ("Strong" if iv > 0.3 else ("Medium" if iv > 0.1 else "Weak"))
-        logger.info(f"  {feat:15s} | IV: {iv:.4f} ({tier} predictor)")
 
     if save_artifacts:
         preprocessor_path = MODELS_DIR / "credit_feature_engineer.joblib"
         joblib.dump(engineer, preprocessor_path)
-        logger.info(f"Saved fitted preprocessor to: {preprocessor_path}")
+        logger.info(f"Saved preprocessor to: {preprocessor_path}")
 
-        # Combine features with target for modeling and save
         full_transformed = X_transformed.copy()
         full_transformed["default_flag"] = y.values
         out_parquet = PROCESSED_DATA_DIR / "features_transformed.parquet"
@@ -270,7 +282,7 @@ def run_feature_engineering_pipeline(
 
 if __name__ == "__main__":
     X_trans, y_target, eng = run_feature_engineering_pipeline()
-    print("\n--- STEP 2: FEATURE ENGINEERING VERIFICATION ---")
+    print("\nFeature Engineering Summary:")
     print(f"Transformed Features Count: {X_trans.shape[1]}")
     print(f"Sample Engineered Features:")
     sample_cols = [

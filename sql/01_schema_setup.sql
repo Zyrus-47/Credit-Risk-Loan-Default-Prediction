@@ -1,6 +1,4 @@
--- 01_schema_setup.sql
--- Table DDL and indexes for raw and staging LendingClub loan data
--- Compatible with DuckDB, SQLite, and PostgreSQL dialects
+-- Raw loan schema and table definitions
 
 CREATE TABLE IF NOT EXISTS raw_lending_club_loans (
     id VARCHAR(64) PRIMARY KEY,

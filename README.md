@@ -1,10 +1,10 @@
-# Enterprise Credit Risk & Expected Loss Engine (Basel II / IFRS 9)
+# Credit Risk Modeling & Expected Loss Engine
 
-A modular, production-ready credit risk modeling platform calculating **Probability of Default (PD)**, **Loss Given Default (LGD)**, **Exposure at Default (EAD)**, and **Expected Loss (EL)** using the LendingClub dataset.
+An end-to-end credit risk analytics platform implementing Probability of Default (PD), Loss Given Default (LGD), Exposure at Default (EAD), and Basel II / IFRS 9 Expected Loss (EL) calculations using LendingClub loan portfolio data.
 
 ---
 
-## Repository Structure
+## Architecture Overview
 
 ```
 Credit Risk & Loan Default Prediction/
@@ -13,137 +13,120 @@ Credit Risk & Loan Default Prediction/
 │   │   └── lending_club_loans.csv
 │   └── processed/
 │       ├── cleaned_loans.parquet
-│       └── cleaned_loans.csv
+│       ├── features_transformed.parquet
+│       ├── portfolio_basel_scored.parquet
+│       └── test_features.parquet
 ├── sql/
-│   ├── 01_schema_setup.sql          # Table DDL & schema setup
-│   ├── 02_data_cleaning.sql          # SQL hygiene, parsing, and target formulation
-│   └── 03_feature_aggregation.sql    # Grade & delinquency cohort aggregation views
+│   ├── 01_schema_setup.sql          # Table DDL and indexes
+│   ├── 02_data_cleaning.sql          # Filtering, type casting, target definition
+│   └── 03_feature_aggregation.sql    # Grade and cohort aggregations
 ├── src/
 │   ├── __init__.py
-│   ├── data_loader.py                # DuckDB ETL and benchmark data ingestion
-│   ├── feature_engineering.py        # Financial feature engineering & encoding (Step 2)
+│   ├── data_loader.py                # DuckDB ingestion and ETL
+│   ├── feature_engineering.py        # Imputation, capping, and financial ratios
 │   ├── models/
 │   │   ├── __init__.py
-│   │   ├── train_pd.py               # PD Champion / Challenger models (Step 3)
-│   │   ├── basel_metrics.py          # LGD, EAD, and Expected Loss (Step 4)
-│   │   └── explainability.py         # SHAP beeswarm & customer scorecard (Step 5)
+│   │   ├── train_pd.py               # PD benchmark and probability calibration
+│   │   ├── basel_metrics.py          # LGD, EAD, and Expected Loss calculations
+│   │   └── explainability.py         # SHAP feature attribution and scorecards
 │   └── dashboard/
-│       └── app.py                    # Streamlit underwriter interface (Step 6)
+│       └── app.py                    # Streamlit underwriting application
 ├── notebooks/
 │   └── exploratory_data_analysis.ipynb
+├── artifacts/
+│   ├── models/                       # Serialized model weights
+│   └── reports/                      # Evaluation tables and diagnostic plots
 ├── requirements.txt
+├── run_pipeline.py                   # Pipeline runner
 └── README.md
 ```
 
 ---
 
-## Step 1 & 2 Execution Summary (SQL Extraction & Data Hygiene)
+## Methodology
 
-- **Engine**: DuckDB in-memory / file-based SQL engine.
-- **Target Formulation**:
-  - Filtered OUT active loans: `Current`, `In Grace Period`, `Late (16-30 days)`, `Late (31-120 days)`.
-  - Binary Target:
-    - Default ($y=1$): `Charged Off`, `Default`, `Does not meet the credit policy. Status:Charged Off`
-    - Fully Paid ($y=0$): `Fully Paid`, `Does not meet the credit policy. Status:Fully Paid`
-- **String Parsing Rules**:
-  - `term`: Stripped `' months'` and cast to integer (`36`, `60`).
-  - `emp_length`: Standardized to integer scale (`0` to `10`).
-  - `int_rate` & `revol_util`: Cleaned of `%` signs and cast to float.
-- **Verification Metrics**:
-  - Ingested: 15,000 raw loans.
-  - Retained Cleaned Cohort: 12,293 loans (2,707 ongoing loans filtered out).
-  - Default Flag Ratio: 79.54% Fully Paid ($y=0$), 20.46% Default ($y=1$).
-  - Monotonic Risk: Grade A Default Rate = 5.75% vs. Grade G Default Rate = 52.79%.
+### 1. Data Cleaning & Target Definition
+- Active and ongoing loans (`Current`, `In Grace Period`, `Late`) are removed to avoid survivorship bias and target leakage.
+- Target formulation:
+  - Default ($y=1$): `Charged Off`, `Default`, `Does not meet the credit policy. Status:Charged Off`
+  - Fully Paid ($y=0$): `Fully Paid`, `Does not meet the credit policy. Status:Fully Paid`
+- Text fields are normalized: term cast to integer (`36`, `60`), employment length standardized to integers (`0` to `10`), and percentage symbols stripped from rates and utilization.
 
----
+### 2. Feature Engineering
+- **Hierarchical Imputation**: Financial medians computed grouped by credit grade and sub-grade with global median fallback.
+- **Winsorization**: 99th percentile capping applied to extreme right-tail distributions (`annual_inc`, `dti`, `revol_bal`).
+- **Financial Domain Ratios**:
+  - Installment to Income: $(\text{installment} \times 12) / \text{annual\_inc}$
+  - Credit History Length: $\text{issue\_d} - \text{earliest\_cr\_line}$ (in months)
+  - Unutilized Credit Limit: $(\text{revol\_bal} / (\text{revol\_util} / 100)) - \text{revol\_bal}$
+  - Revolving Debt to Income: $\text{revol\_bal} / \text{annual\_inc}$
+- **Encoding**: Ordinal mapping for risk tiers (Grade: 1–7, Sub-Grade: 1–35) and one-hot encoding for nominal categories.
 
-## Step 2 Execution Summary (Feature Engineering & EDA)
+### 3. Probability of Default (PD) & Calibration
+- Stratified 80/20 train-test partition.
+- Models benchmarked:
+  - Baseline: Logistic Regression (L2 regularization)
+  - Challenger 1: Random Forest Classifier
+  - Challenger 2: XGBoost with class imbalance weighting (`scale_pos_weight`)
+- **Sigmoid Calibration**: Post-processing via `CalibratedClassifierCV` aligns raw model scores with empirical default rates, lowering the Brier score from 0.2132 to 0.1510.
 
-- **Module**: [`src/feature_engineering.py`](file:///e:/Credit%20Risk%20&%20Loan%20Default%20Prediction/src/feature_engineering.py)
-- **Hierarchical Imputation**: Imputed financial medians grouped hierarchically by `grade` and `sub_grade` with global median fallback.
-- **Winsorization (99th Percentile Capping)**: Robustly capped extreme right-tail skewness on `annual_inc`, `dti`, and `revol_bal`.
-- **Domain Financial Ratios**:
-  - $\text{installment\_to\_income} = \frac{\text{installment} \times 12}{\text{annual\_inc}}$
-  - $\text{credit\_history\_length} = \text{issue\_d} - \text{earliest\_cr\_line}$ (in months)
-  - $\text{unutilized\_credit\_limit} = \frac{\text{revol\_bal}}{\text{revol\_util} / 100} - \text{revol\_bal}$
-  - $\text{revolving\_debt\_to\_income} = \frac{\text{revol\_bal}}{\text{annual\_inc}}$
-- **Encodings**:
-  - Ordinal mapping for `grade` (1–7) and `sub_grade` (1–35).
-  - One-Hot Encoding for nominal variables (`home_ownership`, `verification_status`, `purpose`).
-- **Scorecard Metrics**: Weight of Evidence (WoE) and Information Value (IV) rankings generated.
-- **Notebook**: [`notebooks/exploratory_data_analysis.ipynb`](file:///e:/Credit%20Risk%20&%20Loan%20Default%20Prediction/notebooks/exploratory_data_analysis.ipynb) provides visual analytics.
-- **Artifacts Saved**:
-  - `data/processed/features_transformed.parquet` (41,059 records × 34 features from 50,000 raw loans)
-  - `artifacts/models/credit_feature_engineer.joblib` (fitted transformer for inference)
+### 4. Basel II Expected Loss Engine
+- Formula: $\text{Expected Loss (EL)} = \text{PD} \times \text{LGD} \times \text{EAD}$
+- **Exposure at Default (EAD)**: $\text{loan\_amnt} \times \text{CCF}$ for origination ($\text{CCF}=1.0$) or $\max(\text{loan\_amnt} - \text{total\_rec\_prncp}, 0)$ for historical loans.
+- **Loss Given Default (LGD)**: Derived from net recovery rates and modeled via Ridge regression bounded in $[0.05, 0.95]$.
+- **Risk Tiers**:
+  - Low Risk: Grade A–B (PD < 10%)
+  - Medium Risk: Grade C–D (10% $\le$ PD < 25%)
+  - High Risk: Grade E–G (PD $\ge$ 25%)
 
----
-
-## Step 3 Execution Summary (Probability of Default Modeling & Calibration)
-
-- **Dataset Scale**: Scaled raw benchmark generation to **50,000 records**, resulting in **41,059** cleaned completed loans.
-- **Stratified Split (80/20)**:
-  - Training Set: **32,847 loans** (Default rate: 20.71%)
-  - Test Set: **8,212 loans** (Default rate: 20.70%)
-- **Models Benchmarked**:
-  1. *Baseline Scorecard*: Logistic Regression with L2 Regularization
-  2. *Challenger 1*: Random Forest Classifier (balanced weights)
-  3. *Challenger 2*: XGBoost with `scale_pos_weight = 3.83`
-  4. *Champion*: Calibrated XGBoost via `CalibratedClassifierCV(method='sigmoid')`
-- **Key Performance Results (Test Set)**:
-  | Model | ROC-AUC | PR-AUC | Gini ($2 \times AUC - 1$) | Brier Score | Mean Predicted PD | Empirical Default Rate |
-  |---|---|---|---|---|---|---|
-  | **Random Forest** | 0.7009 | 0.3603 | 0.4018 | 0.2141 | 0.4522 | 0.2070 |
-  | **Logistic Regression L2** | 0.6990 | 0.3598 | 0.3980 | 0.1514 | 0.2068 | 0.2070 |
-  | **XGBoost (Calibrated Champion)** | 0.6985 | 0.3583 | 0.3971 | **0.1510** | **0.2071** | **0.2070** |
-  | **XGBoost (Raw)** | 0.6945 | 0.3525 | 0.3889 | 0.2132 | 0.4425 | 0.2070 |
-- **Calibration Significance**: Raw XGBoost and Random Forest overpredicted probability levels (~44–45%) due to class balancing weights; **Sigmoid Calibration aligned the mean predicted PD to 20.71%**, matching the ground-truth default rate (20.70%) and optimizing the Brier score to 0.1510.
-- **Saved Model & Report Artifacts**:
-  - `artifacts/models/pd_champion_calibrated.joblib`
-  - `artifacts/models/pd_logistic_regression_l2.joblib`
-  - `artifacts/models/pd_random_forest.joblib`
-  - `artifacts/models/pd_xgboost.joblib`
-  - `artifacts/reports/model_performance_metrics.json`
-  - `artifacts/reports/model_comparison_table.csv`
-  - `artifacts/reports/roc_pr_calibration_curves.png`
+### 5. SHAP Feature Attribution
+- TreeExplainer calculates global feature importance and beeswarm distributions across the portfolio.
+- Local waterfall attributions decompose individual credit decisions into log-odds risk-increasing and risk-mitigating factors.
 
 ---
 
-## Step 4 Execution Summary (Basel II / IFRS 9 Expected Loss Engine)
+## Model Evaluation Results
 
-- **Module**: [`src/models/basel_metrics.py`](file:///e:/Credit%20Risk%20&%20Loan%20Default%20Prediction/src/models/basel_metrics.py)
-- **Mathematical Formulations**:
-  - **Expected Loss (EL)**: $\text{EL} = \text{PD} \times \text{LGD} \times \text{EAD}$
-  - **Exposure at Default (EAD)**:
-    - Origination Scenario: $\text{EAD} = \text{loan\_amnt} \times \text{CCF}$ ($\text{CCF}=1.0$)
-    - Historical Scenario: $\text{EAD} = \max(\text{loan\_amnt} - \text{total\_rec\_prncp}, 0)$
-  - **Loss Given Default (LGD)**:
-    - Historical Net Recovery Rate: $\text{Recovery Rate} = \frac{\text{recoveries} - \text{collection\_recovery\_fee}}{\text{EAD}}$
-    - Empirical $\text{LGD} = \text{clip}(1 - \text{Recovery Rate}, 0.0, 1.0)$
-    - Multivariate Ridge LGD model trained on historical defaults and bounded in $[0.05, 0.95]$.
-- **Portfolio Capital Provisions Breakdown**:
-  - Total Portfolio Loans: **41,059**
-  - Total Exposure at Default (EAD): **$481,279,900.00**
-  - Total Expected Loss Provision (EL): **$85,014,238.34**
-  - Unexpected Loss (UL / Capital at Risk): **$162,863,578.63**
-  - Portfolio Weighted Average PD: **20.52%**
-  - Portfolio Weighted Average LGD: **86.08%**
-  - Overall Expected Loss Rate: **17.66%**
+Evaluated on out-of-sample test partition (8,212 loans, empirical default rate: 20.70%):
 
-### Provisions by Institutional Risk Tier
+| Model | ROC-AUC | PR-AUC | Gini | Brier Score | Mean Predicted PD |
+|---|---|---|---|---|---|
+| **Random Forest** | 0.7009 | 0.3603 | 0.4018 | 0.2141 | 0.4522 |
+| **Logistic Regression L2** | 0.6990 | 0.3598 | 0.3980 | 0.1514 | 0.2068 |
+| **XGBoost (Calibrated Champion)** | 0.6985 | 0.3583 | 0.3971 | **0.1510** | **0.2071** |
+| **XGBoost (Raw)** | 0.6945 | 0.3525 | 0.3889 | 0.2132 | 0.4425 |
 
-| Risk Tier | Loan Count | Total Exposure (EAD) | Expected Loss Provision (EL) | Avg PD | Avg LGD | EL Rate (%) |
+---
+
+## Portfolio Capital Provisions
+
+Summary across 41,059 completed loans ($481.28M total exposure):
+
+| Risk Tier | Loan Count | Total Exposure (EAD) | Expected Loss (EL) | Avg PD | Avg LGD | EL Rate (%) |
 |---|---|---|---|---|---|---|
 | **Low (Grade A-B)** | 7,990 | $93,115,400.00 | $5,971,251.88 | 7.38% | 85.99% | 6.34% |
 | **Medium (Grade C-D)** | 19,391 | $234,491,100.00 | $33,668,978.72 | 16.71% | 86.02% | 14.38% |
 | **High (Grade E-G)** | 13,678 | $153,673,400.00 | $45,374,007.74 | 34.33% | 86.06% | 29.54% |
+| **Total** | **41,059** | **$481,279,900.00** | **$85,014,238.34** | **20.52%** | **86.08%** | **17.66%** |
 
-- **Saved Artifacts**:
-  - `artifacts/models/lgd_ridge_model.joblib`
-  - `artifacts/models/lgd_grade_table.json`
-  - `artifacts/reports/portfolio_basel_summary.json`
-  - `artifacts/reports/basel_provisions_by_tier.csv`
-  - `artifacts/reports/expected_loss_distribution.png`
-  - `data/processed/portfolio_basel_scored.parquet`
+---
 
+## Quickstart
 
+### 1. Requirements
+Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
+### 2. Run Pipeline
+Executes ETL, model training, evaluation, Basel metrics, and scorecard exports:
+```bash
+python run_pipeline.py
+```
+
+### 3. Launch Dashboard
+Starts the underwriting interface:
+```bash
+streamlit run src/dashboard/app.py
+```

@@ -1,7 +1,4 @@
-"""
-Data loader and SQL ingestion pipeline for LendingClub credit risk dataset.
-Interfaces with DuckDB to run automated data hygiene, filtering, and target labeling.
-"""
+"""Data ingestion and SQL transformation pipeline."""
 
 from __future__ import annotations
 
@@ -234,16 +231,7 @@ class DataLoader:
         force_regenerate: bool = False,
         n_samples: int = 50000,
     ) -> pd.DataFrame:
-        """
-        Executes full Step 1 and Step 2 SQL data hygiene pipeline:
-        1. Checks for raw CSV or triggers benchmark generation
-        2. Ingests raw data into DuckDB table `raw_lending_club_loans`
-        3. Runs `01_schema_setup.sql`
-        4. Runs `02_data_cleaning.sql`
-        5. Runs `03_feature_aggregation.sql`
-        6. Validates target distribution and outputs processed datasets
-        """
-        # Determine CSV source
+        """Runs SQL data cleaning and feature aggregation in DuckDB."""
         if raw_csv_path and os.path.exists(raw_csv_path):
             csv_path = Path(raw_csv_path)
         else:
@@ -255,12 +243,9 @@ class DataLoader:
 
         logger.info(f"Ingesting raw CSV: {csv_path}")
 
-        # 1. Run Schema Setup
         schema_file = SQL_DIR / "01_schema_setup.sql"
         self.execute_sql_file(schema_file)
 
-        # 2. Ingest CSV into raw_lending_club_loans table
-        # We replace the table with read_csv_auto to handle type flexibility seamlessly
         self.conn.execute(f"""
             CREATE OR REPLACE TABLE raw_lending_club_loans AS
             SELECT * FROM read_csv_auto('{csv_path.as_posix()}', all_varchar=True);
@@ -268,33 +253,28 @@ class DataLoader:
         raw_count = self.conn.execute("SELECT COUNT(*) FROM raw_lending_club_loans").fetchone()[0]
         logger.info(f"Raw records ingested into DuckDB: {raw_count:,}")
 
-        # 3. Execute Data Cleaning & Target Extraction
         cleaning_file = SQL_DIR / "02_data_cleaning.sql"
         self.conn.execute("DROP TABLE IF EXISTS cleaned_loans;")
         self.execute_sql_file(cleaning_file)
 
-        # 4. Execute Feature Aggregations
         agg_file = SQL_DIR / "03_feature_aggregation.sql"
         self.conn.execute("DROP TABLE IF EXISTS grade_risk_summary;")
         self.conn.execute("DROP TABLE IF EXISTS purpose_risk_summary;")
         self.conn.execute("DROP TABLE IF EXISTS delinquency_cohort_summary;")
         self.execute_sql_file(agg_file)
 
-        # 5. Extract cleaned data into pandas DataFrame
         cleaned_df = self.conn.execute("SELECT * FROM cleaned_loans").fetchdf()
-        logger.info(f"Cleaned and sanitized dataset extracted: {len(cleaned_df):,} records")
+        logger.info(f"Cleaned dataset extracted: {len(cleaned_df):,} records")
 
-        # 6. Save Processed Artifacts
         parquet_out = PROCESSED_DATA_DIR / "cleaned_loans.parquet"
         csv_out = PROCESSED_DATA_DIR / "cleaned_loans.csv"
         cleaned_df.to_parquet(parquet_out, index=False)
         cleaned_df.to_csv(csv_out, index=False)
-        logger.info(f"Saved processed datasets to {parquet_out} and {csv_out}")
 
         return cleaned_df
 
     def get_summary_statistics(self) -> dict:
-        """Extracts validation metrics from DuckDB to verify Step 1 completion."""
+        """Returns summary statistics for the cleaned dataset."""
         total_cleaned = self.conn.execute("SELECT COUNT(*) FROM cleaned_loans").fetchone()[0]
         default_dist = self.conn.execute("""
             SELECT 
@@ -308,7 +288,6 @@ class DataLoader:
 
         grade_summary = self.conn.execute("SELECT * FROM grade_risk_summary").fetchdf()
         
-        # Check parsing rules:
         term_types = self.conn.execute("SELECT DISTINCT term FROM cleaned_loans ORDER BY term").fetchall()
         int_rate_min_max = self.conn.execute("SELECT MIN(int_rate), MAX(int_rate), AVG(int_rate) FROM cleaned_loans").fetchone()
         revol_util_min_max = self.conn.execute("SELECT MIN(revol_util), MAX(revol_util), AVG(revol_util) FROM cleaned_loans").fetchone()
@@ -329,7 +308,7 @@ if __name__ == "__main__":
     loader = DataLoader()
     df = loader.load_and_transform(force_regenerate=True, n_samples=50000)
     stats = loader.get_summary_statistics()
-    print("\n--- STEP 1 & 2 VERIFICATION SUMMARY ---")
+    print("\nDataset Summary:")
     print(f"Total Cleaned Records: {stats['total_cleaned_loans']:,}")
     print("\nDefault Distribution (0 = Fully Paid, 1 = Default):")
     for row in stats["default_distribution"]:

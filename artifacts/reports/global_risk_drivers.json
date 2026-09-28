@@ -1,0 +1,42 @@
+[
+    {
+        "feature": "grade_num",
+        "mean_abs_shap": 0.39198312163352966
+    },
+    {
+        "feature": "sub_grade_num",
+        "mean_abs_shap": 0.21018464863300323
+    },
+    {
+        "feature": "int_rate",
+        "mean_abs_shap": 0.1231033131480217
+    },
+    {
+        "feature": "installment_to_income",
+        "mean_abs_shap": 0.04971738159656525
+    },
+    {
+        "feature": "revolving_debt_to_income",
+        "mean_abs_shap": 0.04008848965167999
+    },
+    {
+        "feature": "loan_amnt",
+        "mean_abs_shap": 0.038562025874853134
+    },
+    {
+        "feature": "installment",
+        "mean_abs_shap": 0.03845164179801941
+    },
+    {
+        "feature": "dti",
+        "mean_abs_shap": 0.035727906972169876
+    },
+    {
+        "feature": "revol_util",
+        "mean_abs_shap": 0.03086366318166256
+    },
+    {
+        "feature": "revol_bal",
+        "mean_abs_shap": 0.030271466821432114
+    }
+]
