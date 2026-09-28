@@ -1,0 +1,42 @@
+{
+    "total_portfolio_loans": 41059,
+    "total_funded_volume_usd": 481279900.0,
+    "total_exposure_at_default_usd": 481279900.0,
+    "total_expected_loss_provision_usd": 85014238.34,
+    "total_unexpected_loss_usd": 162863578.63,
+    "portfolio_weighted_pd_pct": 20.52,
+    "portfolio_weighted_lgd_pct": 86.08,
+    "portfolio_el_rate_pct": 17.66,
+    "tier_breakdown": [
+        {
+            "risk_tier": "High (Grade E-G)",
+            "loan_count": 13678,
+            "total_funded": 153673400.0,
+            "total_ead": 153673400.0,
+            "total_expected_loss": 45374007.74,
+            "avg_pd": 0.34325762127417564,
+            "avg_lgd": 0.860642089486767,
+            "el_rate_pct": 29.543505629477995
+        },
+        {
+            "risk_tier": "Low (Grade A-B)",
+            "loan_count": 7990,
+            "total_funded": 93115400.0,
+            "total_ead": 93115400.0,
+            "total_expected_loss": 5971251.88,
+            "avg_pd": 0.07376533031693569,
+            "avg_lgd": 0.859871802252816,
+            "el_rate_pct": 6.343052565707134
+        },
+        {
+            "risk_tier": "Medium (Grade C-D)",
+            "loan_count": 19391,
+            "total_funded": 234491100.0,
+            "total_ead": 234491100.0,
+            "total_expected_loss": 33668978.72,
+            "avg_pd": 0.1671275596762547,
+            "avg_lgd": 0.8602004383476871,
+            "el_rate_pct": 14.376772729616832
+        }
+    ]
+}

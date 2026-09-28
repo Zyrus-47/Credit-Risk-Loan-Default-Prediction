@@ -42,7 +42,7 @@ class DataLoader:
 
     def generate_synthetic_lendingclub_data(
         self,
-        n_samples: int = 15000,
+        n_samples: int = 50000,
         random_state: int = 42,
         output_file: Optional[Path] = None,
     ) -> pd.DataFrame:
@@ -228,7 +228,12 @@ class DataLoader:
         for stmt in statements:
             self.conn.execute(stmt)
 
-    def load_and_transform(self, raw_csv_path: Optional[str] = None) -> pd.DataFrame:
+    def load_and_transform(
+        self,
+        raw_csv_path: Optional[str] = None,
+        force_regenerate: bool = False,
+        n_samples: int = 50000,
+    ) -> pd.DataFrame:
         """
         Executes full Step 1 and Step 2 SQL data hygiene pipeline:
         1. Checks for raw CSV or triggers benchmark generation
@@ -243,9 +248,9 @@ class DataLoader:
             csv_path = Path(raw_csv_path)
         else:
             default_csv = RAW_DATA_DIR / "lending_club_loans.csv"
-            if not default_csv.exists():
-                logger.info(f"No existing raw dataset found at {default_csv}. Generating synthetic benchmark dataset.")
-                self.generate_synthetic_lendingclub_data(output_file=default_csv)
+            if force_regenerate or not default_csv.exists():
+                logger.info(f"Generating benchmark dataset with {n_samples:,} records at {default_csv}.")
+                self.generate_synthetic_lendingclub_data(n_samples=n_samples, output_file=default_csv)
             csv_path = default_csv
 
         logger.info(f"Ingesting raw CSV: {csv_path}")
@@ -322,7 +327,7 @@ class DataLoader:
 
 if __name__ == "__main__":
     loader = DataLoader()
-    df = loader.load_and_transform()
+    df = loader.load_and_transform(force_regenerate=True, n_samples=50000)
     stats = loader.get_summary_statistics()
     print("\n--- STEP 1 & 2 VERIFICATION SUMMARY ---")
     print(f"Total Cleaned Records: {stats['total_cleaned_loans']:,}")
